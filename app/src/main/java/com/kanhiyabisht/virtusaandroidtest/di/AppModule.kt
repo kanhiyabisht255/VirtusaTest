@@ -34,6 +34,4 @@ class AppModule {
     fun provideRemoteRepository(freeGameApi: FreeGameApi): FreeGameRepository {
         return FreeGameRepositoryImpl(freeGameApi)
     }
-
-
 }

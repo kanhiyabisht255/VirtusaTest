@@ -8,16 +8,19 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import com.kanhiyabisht.virtusaandroidtest.presentation.free_games.states.FreeGameState
 
 @Composable
-fun GameScreen(freeGameState: FreeGameState, modifier: Modifier) {
+fun GameScreen(
+    freeGameState: FreeGameState,
+    modifier: Modifier,
+    onItemClick: (gameId: String) -> Unit
+) {
 
     if (freeGameState.freeGames?.isNotEmpty()!!) {
         LazyColumn {
-            items(freeGameState.freeGames) {
-                FreeGameItem(modifier, it)
-            }
+            items(freeGameState.freeGames) { FreeGameItem(modifier, it, onItemClick) }
         }
     } else if (freeGameState.isLoading) {
         Box(modifier = modifier.fillMaxSize()) {
@@ -25,3 +28,5 @@ fun GameScreen(freeGameState: FreeGameState, modifier: Modifier) {
         }
     }
 }
+
+

@@ -26,7 +26,7 @@ class FreeGamesViewModel @Inject constructor(private val useCase: FreeGameUseCas
     val freeGameState: StateFlow<FreeGameState>
         get() = _freeGameState
 
-    private val _uiEffect  = MutableSharedFlow<UiEffect>()
+    private val _uiEffect = MutableSharedFlow<UiEffect>()
 
     val uiEffect: SharedFlow<UiEffect>
         get() = _uiEffect.asSharedFlow()
@@ -36,14 +36,16 @@ class FreeGamesViewModel @Inject constructor(private val useCase: FreeGameUseCas
     }
 
     private fun getAllFreeGames() = useCase().onEach {
-        when(it) {
+        when (it) {
             is Resource.Error -> {
                 _freeGameState.value = FreeGameState().copy(errorMsg = it.msg)
                 _uiEffect.emit(UiEffect.ShowSnackBar(it.msg.toString()))
             }
+
             is Resource.Loading -> {
                 _freeGameState.value = FreeGameState().copy(isLoading = true)
             }
+
             is Resource.Success -> {
                 _freeGameState.value = FreeGameState().copy(freeGames = it.data)
             }
@@ -52,10 +54,12 @@ class FreeGamesViewModel @Inject constructor(private val useCase: FreeGameUseCas
 
 
     fun onEvent(uiEvent: UiEvent) {
-        when(uiEvent) {
+        when (uiEvent) {
             UiEvent.NavigateToDetailScreen -> {
 
             }
+
+            else -> {}
         }
     }
 }
