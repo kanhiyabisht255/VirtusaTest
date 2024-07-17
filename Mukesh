@@ -1,0 +1,41 @@
+companion object {
+    lateinit var fileMimeType: String
+
+    fun getBase64StringFromBlobUrl(blobUrl: String, mimeType: String, userAgent: String): String {
+        fileMimeType = mimeType
+
+        return if (blobUrl.startsWith("blob")) {
+            "javascript: var xhr = new XMLHttpRequest(); xhr.open('GET', '$blobUrl', true);" +
+            "xhr.setRequestHeader('Content-Type', '$mimeType');" +
+            "xhr.responseType = 'blob';" +
+            "xhr.onload = function(e) {" +
+            "    if (this.status == 200) {" +
+            "        var blobPdf = this.response;" +
+            "        var reader = new FileReader();" +
+            "        reader.readAsDataURL(blobPdf);" +
+            "        reader.onloadend = function() {" +
+            "            var base64data = reader.result;" +
+            "            Android.getBase64FromBlobData(base64data);" +
+            "        };" +
+            "        reader.onerror = function(error) {" +
+            "            console.error('Error reading blob as DataURL:', error);" +
+            "        };" +
+            "    } else {" +
+            "        console.error('Failed to retrieve blob, status code:', this.status, 'status text:', this.statusText);" +
+            "    }" +
+            "};" +
+            "xhr.onerror = function(e) {" +
+            "    console.error('XMLHttpRequest error:', e);" +
+            "    console.error('Status:', this.status);" +
+            "    console.error('Status text:', this.statusText);" +
+            "    if (this.responseText) {" +
+            "        console.error('Response text:', this.responseText);" +
+            "    }" +
+            "};" +
+            "xhr.send();" +
+            "console.log('Request sent for Blob URL:', '$blobUrl');"
+        } else {
+            "javascript: console.log('It is not a Blob URL');"
+        }
+    }
+}
