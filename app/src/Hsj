@@ -1,0 +1,57 @@
+implementation 'com.google.maps.android:android-maps-utils:2.2.3'
+
+
+private fun findNearbyPlaces(selectedCategory: String) {
+    val placeFields = listOf(Place.Field.NAME, Place.Field.RATING, Place.Field.LAT_LNG, Place.Field.TYPES)
+    val request = FindCurrentPlaceRequest.builder(placeFields).build()
+
+    // Get the user's current location
+    fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+        if (location != null) {
+            val currentLatLng = LatLng(location.latitude, location.longitude)
+
+            Places.createClient(this).findCurrentPlace(request)
+                .addOnSuccessListener { response ->
+                    val places = response.placeLikelihoods
+                        .filter {
+                            val placeLatLng = it.place.latLng
+                            placeLatLng != null && (
+                                it.place.types?.contains(getPlaceTypeForCategory(selectedCategory)) == true || selectedCategory == "All"
+                            )
+                        }
+                        .filter {
+                            val placeLatLng = it.place.latLng
+                            placeLatLng != null && isWithinRadius(currentLatLng, placeLatLng, 1500.0) // Check 1.5km radius
+                        }
+                        .sortedByDescending { it.place.rating }
+                        .take(10) // Get top 10 places by rating
+
+                    // Clear existing markers
+                    mMap.clear()
+
+                    for (placeLikelihood in places) {
+                        val place = placeLikelihood.place
+                        val placeLatLng = place.latLng
+                        if (placeLatLng != null) {
+                            mMap.addMarker(MarkerOptions().position(placeLatLng).title(place.name))
+                        }
+                    }
+                }
+                .addOnFailureListener { exception ->
+                    Snackbar.make(findViewById(R.id.map), "Error finding places: ${exception.message}", Snackbar.LENGTH_LONG).show()
+                }
+        } else {
+            Snackbar.make(findViewById(R.id.map), "Current location not available", Snackbar.LENGTH_LONG).show()
+        }
+    }
+}
+
+
+import com.google.maps.android.SphericalUtil
+
+private fun isWithinRadius(currentLatLng: LatLng, placeLatLng: LatLng, radiusInMeters: Double): Boolean {
+    val distance = SphericalUtil.computeDistanceBetween(currentLatLng, placeLatLng)
+    return distance <= radiusInMeters
+}
+
+
