@@ -1,0 +1,195 @@
+package com.example.nearbyplaces
+
+import android.Manifest
+import android.content.IntentSender
+import android.content.pm.PackageManager
+import android.location.Location
+import android.os.Bundle
+import android.util.Log
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import com.google.android.gms.location.*
+import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.GoogleMap
+import com.google.android.gms.maps.OnMapReadyCallback
+import com.google.android.gms.maps.SupportMapFragment
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.MarkerOptions
+import com.google.android.libraries.places.api.Places
+import com.google.android.libraries.places.api.model.Place
+import com.google.android.libraries.places.api.net.FindCurrentPlaceRequest
+import com.google.android.libraries.places.api.net.PlacesClient
+import com.google.android.material.snackbar.Snackbar
+
+class MainActivity : AppCompatActivity(), OnMapReadyCallback {
+
+    private lateinit var mMap: GoogleMap
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private lateinit var placesClient: PlacesClient
+    private lateinit var locationRequest: LocationRequest
+    private lateinit var locationSettingsRequest: LocationSettingsRequest
+    private lateinit var locationCallback: LocationCallback
+    private lateinit var settingsClient: SettingsClient
+    private val locationPermissionCode = 101
+    private val locationSettingsRequestCode = 102
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        // Initialize Places API
+        Places.initialize(applicationContext, "YOUR_GOOGLE_MAPS_API_KEY")
+        placesClient = Places.createClient(this)
+
+        // Obtain the SupportMapFragment and get notified when the map is ready to be used.
+        val mapFragment = supportFragmentManager
+            .findFragmentById(R.id.map) as SupportMapFragment
+        mapFragment.getMapAsync(this)
+
+        // Initialize FusedLocationProviderClient
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+
+        // Initialize Settings Client
+        settingsClient = LocationServices.getSettingsClient(this)
+
+        // Create location request
+        locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000).build()
+
+        // Build location settings request
+        val builder = LocationSettingsRequest.Builder()
+            .addLocationRequest(locationRequest)
+        locationSettingsRequest = builder.build()
+
+        // Define location callback
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(locationResult: LocationResult) {
+                val location = locationResult.lastLocation
+                if (location != null) {
+                    val currentLatLng = LatLng(location.latitude, location.longitude)
+                    mMap.animateCamera(CameraUpdateFactory.newLatLngZoom(currentLatLng, 15f))
+
+                    // Search nearby places within 1.5 km radius
+                    findNearbyPlaces(currentLatLng)
+
+                    // Stop location updates to save battery once the location is found
+                    fusedLocationClient.removeLocationUpdates(this)
+                } else {
+                    Snackbar.make(findViewById(R.id.map), "Location not found. Try again.", Snackbar.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    override fun onMapReady(googleMap: GoogleMap) {
+        mMap = googleMap
+        checkLocationPermission()
+    }
+
+    private fun checkLocationPermission() {
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            // Request the permission
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                locationPermissionCode
+            )
+        } else {
+            // Permission already granted, now check if location services are enabled
+            enableMyLocationLayer()
+            checkLocationSettings()
+        }
+    }
+
+    private fun enableMyLocationLayer() {
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            mMap.isMyLocationEnabled = true  // Enable blue dot on map
+        }
+    }
+
+    private fun checkLocationSettings() {
+        settingsClient.checkLocationSettings(locationSettingsRequest)
+            .addOnSuccessListener {
+                // All location settings are satisfied. Request location updates.
+                requestLocationUpdates()
+            }
+            .addOnFailureListener { exception ->
+                if (exception is ResolvableApiException) {
+                    // Location settings are not satisfied, but can be fixed by showing a dialog
+                    try {
+                        exception.startResolutionForResult(this, locationSettingsRequestCode)
+                    } catch (sendEx: IntentSender.SendIntentException) {
+                        Log.e("LocationError", "Error starting resolution for location settings: ${sendEx.message}")
+                    }
+                } else {
+                    Snackbar.make(findViewById(R.id.map), "Location services are required", Snackbar.LENGTH_LONG).show()
+                }
+            }
+    }
+
+    private fun requestLocationUpdates() {
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, null)
+        }
+    }
+
+    private fun findNearbyPlaces(currentLatLng: LatLng) {
+        val placeFields = listOf(Place.Field.ID, Place.Field.NAME, Place.Field.LAT_LNG)
+        val request = FindCurrentPlaceRequest.builder(placeFields).build()
+
+        placesClient.findCurrentPlace(request)
+            .addOnSuccessListener { response ->
+                for (placeLikelihood in response.placeLikelihoods) {
+                    val place = placeLikelihood.place
+                    val placeLatLng = place.latLng
+                    if (placeLatLng != null) {
+                        val distance = FloatArray(1)
+                        Location.distanceBetween(
+                            currentLatLng.latitude, currentLatLng.longitude,
+                            placeLatLng.latitude, placeLatLng.longitude,
+                            distance
+                        )
+                        if (distance[0] <= 1500) { // 1.5 km radius
+                            mMap.addMarker(
+                                MarkerOptions()
+                                    .position(placeLatLng)
+                                    .title(place.name)
+                            )
+                        }
+                    }
+                }
+            }
+            .addOnFailureListener { exception ->
+                Snackbar.make(findViewById(R.id.map), "Error finding places: ${exception.message}", Snackbar.LENGTH_LONG).show()
+            }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<String>, grantResults: IntArray
+    ) {
+        if (requestCode == locationPermissionCode && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            enableMyLocationLayer()  // Enable the blue dot after permission is granted
+            checkLocationSettings()
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == locationSettingsRequestCode) {
+            // After the user interacts with the location settings dialog, check again if the location is enabled
+            checkLocationSettings()
+        }
+    }
+}
