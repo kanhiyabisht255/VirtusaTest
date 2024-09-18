@@ -1,0 +1,233 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <!-- Horizontal RecyclerView for Categories -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/categoryRecyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:layout_marginTop="8dp"/>
+
+    <!-- Google Map -->
+    <FrameLayout
+        android:id="@+id/map_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+        <fragment
+            android:id="@+id/map"
+            android:name="com.google.android.gms.maps.SupportMapFragment"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"/>
+    </FrameLayout>
+</LinearLayout>
+
+
+
+
+
+package com.example.nearbyplaces
+
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
+import androidx.recyclerview.widget.RecyclerView
+
+class CategoryAdapter(
+    private val categories: List<String>,
+    private val onCategoryClick: (String) -> Unit
+) : RecyclerView.Adapter<CategoryAdapter.CategoryViewHolder>() {
+
+    private var selectedCategory = "All" // Default selected category
+
+    inner class CategoryViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val categoryName: TextView = itemView.findViewById(R.id.category_name)
+
+        init {
+            itemView.setOnClickListener {
+                selectedCategory = categories[adapterPosition]
+                onCategoryClick(selectedCategory)
+                notifyDataSetChanged() // Refresh the UI to indicate selected item
+            }
+        }
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CategoryViewHolder {
+        val view = LayoutInflater.from(parent.context)
+            .inflate(R.layout.category_item, parent, false)
+        return CategoryViewHolder(view)
+    }
+
+    override fun onBindViewHolder(holder: CategoryViewHolder, position: Int) {
+        val category = categories[position]
+        holder.categoryName.text = category
+
+        // Highlight selected category
+        holder.categoryName.isSelected = category == selectedCategory
+    }
+
+    override fun getItemCount() = categories.size
+}
+
+
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="8dp">
+
+    <TextView
+        android:id="@+id/category_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:padding="8dp"
+        android:textSize="16sp"
+        android:textColor="?android:attr/textColorPrimary"
+        android:background="?android:attr/selectableItemBackground"/>
+</LinearLayout>
+
+
+
+package com.example.nearbyplaces
+
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.util.Log
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.android.gms.maps.CameraUpdateFactory
+import com.google.android.gms.maps.GoogleMap
+import com.google.android.gms.maps.OnMapReadyCallback
+import com.google.android.gms.maps.SupportMapFragment
+import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.MarkerOptions
+import com.google.android.libraries.places.api.Places
+import com.google.android.libraries.places.api.model.Place
+import com.google.android.libraries.places.api.net.FindCurrentPlaceRequest
+import com.google.android.material.snackbar.Snackbar
+import org.json.JSONObject
+import java.nio.charset.Charset
+
+class MainActivity : AppCompatActivity(), OnMapReadyCallback {
+
+    private lateinit var mMap: GoogleMap
+    private lateinit var categoryAdapter: CategoryAdapter
+    private lateinit var selectedCategory: String
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        // Initialize Places API
+        Places.initialize(applicationContext, "YOUR_GOOGLE_MAPS_API_KEY")
+
+        // Initialize RecyclerView for categories
+        setupCategoryRecyclerView()
+
+        // Obtain the SupportMapFragment and get notified when the map is ready to be used.
+        val mapFragment = supportFragmentManager.findFragmentById(R.id.map) as SupportMapFragment
+        mapFragment.getMapAsync(this)
+    }
+
+    override fun onMapReady(googleMap: GoogleMap) {
+        mMap = googleMap
+        checkLocationPermission()
+    }
+
+    private fun setupCategoryRecyclerView() {
+        val categories = loadCategoriesFromAssets()
+        categoryAdapter = CategoryAdapter(categories) { selected ->
+            selectedCategory = selected
+            // Call findNearbyPlaces based on the selected category
+            findNearbyPlaces(selectedCategory)
+        }
+
+        val recyclerView = findViewById<RecyclerView>(R.id.categoryRecyclerView)
+        recyclerView.layoutManager = LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        recyclerView.adapter = categoryAdapter
+    }
+
+    private fun loadCategoriesFromAssets(): List<String> {
+        val json: String?
+        try {
+            val inputStream = assets.open("categories.json")
+            val size = inputStream.available()
+            val buffer = ByteArray(size)
+            inputStream.read(buffer)
+            inputStream.close()
+            json = String(buffer, Charset.forName("UTF-8"))
+
+            val jsonObject = JSONObject(json)
+            val jsonArray = jsonObject.getJSONArray("categories")
+            val categoriesList = ArrayList<String>()
+            for (i in 0 until jsonArray.length()) {
+                categoriesList.add(jsonArray.getString(i))
+            }
+            return categoriesList
+        } catch (ex: Exception) {
+            ex.printStackTrace()
+            return emptyList()
+        }
+    }
+
+    private fun findNearbyPlaces(selectedCategory: String) {
+        val placeFields = listOf(Place.Field.NAME, Place.Field.RATING, Place.Field.LAT_LNG, Place.Field.TYPES)
+        val request = FindCurrentPlaceRequest.builder(placeFields).build()
+
+        Places.createClient(this).findCurrentPlace(request)
+            .addOnSuccessListener { response ->
+                val places = response.placeLikelihoods
+                    .filter { it.place.types?.contains(getPlaceTypeForCategory(selectedCategory)) == true || selectedCategory == "All" }
+                    .sortedByDescending { it.place.rating }
+                    .take(10) // Get top 10 places by rating
+
+                // Clear existing markers
+                mMap.clear()
+
+                for (placeLikelihood in places) {
+                    val place = placeLikelihood.place
+                    val placeLatLng = place.latLng
+                    if (placeLatLng != null) {
+                        mMap.addMarker(MarkerOptions().position(placeLatLng).title(place.name))
+                    }
+                }
+            }
+            .addOnFailureListener { exception ->
+                Snackbar.make(findViewById(R.id.map), "Error finding places: ${exception.message}", Snackbar.LENGTH_LONG).show()
+            }
+    }
+
+    private fun getPlaceTypeForCategory(category: String): Place.Type? {
+        return when (category) {
+            "Restaurants" -> Place.Type.RESTAURANT
+            "Cafes" -> Place.Type.CAFE
+            "Hotels" -> Place.Type.LODGING
+            "Bars" -> Place.Type.BAR
+            "Tourist Attractions" -> Place.Type.TOURIST_ATTRACTION
+            "Parks" -> Place.Type.PARK
+            "Shopping Malls" -> Place.Type.SHOPPING_MALL
+            "Toilets" -> Place.Type.RESTROOM
+            "Pubs" -> Place.Type.BAR
+            "Nightlife" -> Place.Type.NIGHT_CLUB
+            else -> null
+        }
+    }
+
+    private fun checkLocationPermission() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 1)
+        } else {
+            mMap.isMyLocationEnabled = true
+            mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(LatLng(37.7749, -122.4194), 12f)) // Default to San Francisco
+        }
+    }
+}
+
